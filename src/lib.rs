@@ -867,6 +867,36 @@ pub fn mount2<FS: Filesystem, P: AsRef<Path>>(
     Session::new(filesystem, mountpoint.as_ref(), options).and_then(|mut se| se.run())
 }
 
+/// Mount the given filesystem to the given mountpoint. The supplied callback is invoked with
+/// the '&io::Result' from the Session constructor. This can be either 'Ok(Session)' or
+/// 'Err(io::Error)'. The callback can inspect this state and handle notifications/logging.
+/// After the callback completes the file systems event loop is started and this function will
+/// not return until the filesystem is unmounted.
+pub fn mount_with_callback<
+    FS: Filesystem,
+    P: AsRef<Path>,
+    F: FnOnce(&io::Result<Session<FS>>) + Copy,
+>(
+    filesystem: FS,
+    mountpoint: P,
+    options: &[MountOption],
+    callback: F,
+) -> io::Result<()> {
+    check_option_conflicts(options)?;
+    Session::new(filesystem, mountpoint.as_ref(), options)
+        .or_else(|e| {
+            let e = Err(e);
+            callback(&e);
+            e
+        })
+        .and_then(|ok| {
+            let ok = Ok(ok);
+            callback(&ok);
+            ok
+        })
+        .and_then(|mut se| se.run())
+}
+
 /// Mount the given filesystem to the given mountpoint. This function spawns
 /// a background thread to handle filesystem operations while being mounted
 /// and therefore returns immediately. The returned handle should be stored
